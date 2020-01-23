@@ -25,7 +25,7 @@ class LaunchMode(object):
 
     Args:
         shell_interpreter (str): Interpreter command for script. Default 'sh'
-        async_run (bool): If True, 
+        async_run (bool): If True,
     """
     def __init__(self, shell_interpreter='sh', async_run=False):
         self.shell_interpreter = shell_interpreter
@@ -78,12 +78,12 @@ class SSHMode(LaunchMode):
         self.ssh_cred = ssh_credentials
 
     def _get_run_command(self, script_filename):
-        return self.ssh_cred.get_ssh_script_cmd(script_filename, 
+        return self.ssh_cred.get_ssh_script_cmd(script_filename,
                                                 shell_interpreter=self.shell_interpreter)
 
 
 class EC2Mode(LaunchMode):
-    def __init__(self, 
+    def __init__(self,
                  ec2_credentials,
                  s3_bucket,
                  s3_log_path,
@@ -117,7 +117,7 @@ class EC2Mode(LaunchMode):
         self.security_group_ids = security_group_ids
         self.swap_size = swap_size
         self.sync_interval = 15
-    
+
     def dedent(self, s):
         lines = [l.strip() for l in s.split('\n')]
         return '\n'.join(lines)
@@ -190,7 +190,7 @@ class EC2Mode(LaunchMode):
             script_s3_filename=script_s3_filename
         ))
 
-        # 2) Sync data 
+        # 2) Sync data
         # In theory the ec2_local_dir could be some random directory,
         # but we make it the same as the mount directory for
         # convenience.
@@ -412,7 +412,7 @@ class GCPMode(LaunchMode):
         zone (str): GCE compute zone.
         instance_type (str): GCE instance type
     """
-    def __init__(self, 
+    def __init__(self,
                  gcp_project,
                  gcp_bucket,
                  gcp_log_path,
@@ -423,6 +423,7 @@ class GCPMode(LaunchMode):
                  preemptible=True,
                  zone='auto',
                  instance_type='f1-micro',
+                 gpu_kwargs=None,
                  gcp_label='gcp_doodad',
                  **kwargs):
         super(GCPMode, self).__init__(**kwargs)
@@ -436,9 +437,15 @@ class GCPMode(LaunchMode):
         self.preemptible = preemptible
         self.zone = zone
         self.instance_type = instance_type
-        self.use_gpu = False
+        self.use_gpu = gpu_kwargs is not None
         self.gcp_label = gcp_label
         self.compute = googleapiclient.discovery.build('compute', 'v1')
+
+        if self.use_gpu:
+            print('Using gpu...')
+            self.num_gpu = gpu_kwargs['num_gpu']
+            self.gpu_model = gpu_kwargs['gpu_model']
+            self.gpu_type = gcp_util.get_gpu_type(self.gcp_project, self.zone, self.gpu_model)
 
     def __str__(self):
         return 'GCP-%s-%s' % (self.gcp_project, self.instance_type)
@@ -473,7 +480,7 @@ class GCPMode(LaunchMode):
             'remote_script_path': remote_script,
             'bucket_name': self.gcp_bucket,
             'terminate': json.dumps(self.terminate_on_end),
-            'use_gpu': self.use_gpu,
+            'use_gpu': json.dumps(self.use_gpu),
             'script_args': script_args,
             'startup-script': start_script,
             'shutdown-script': stop_script
@@ -537,6 +544,11 @@ class GCPMode(LaunchMode):
                 "exp_prefix": exp_prefix,
             }
         }
+        if self.use_gpu:
+            config["guestAccelerators"] = [{
+                      "acceleratorType": self.gpu_type,
+                      "acceleratorCount": self.num_gpu,
+            }]
         compute_instances = self.compute.instances().insert(
             project=self.gcp_project,
             zone=zone,
